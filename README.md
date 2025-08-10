@@ -435,14 +435,12 @@ Works in all modern browsers and Node.js environments:
 ```
 phone-forge/
 ├── src/
-│   ├── index.js              # Main library (backward compatible)
-│   ├── enhanced-index.js     # Enhanced functionality
+│   ├── index.js              # Main library
 │   ├── phone-database.json   # Complete country database
 │   ├── phone-utils.js        # Database utility functions
 │   └── index.d.ts           # TypeScript definitions
 ├── test/
 │   ├── index.test.js        # Basic tests
-│   └── enhanced.test.js     # Enhanced feature tests
 ├── package.json
 └── README.md
 ```

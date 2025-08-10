@@ -1,7 +1,7 @@
 {
   "name": "phone-forge",
-  "version": "0.1.0",
-  "description": "A lightweight JavaScript library for formatting phone numbers",
+  "version": "1.0.0",
+  "description": "A comprehensive JavaScript library for formatting, validating, and analyzing phone numbers with international country database",
   "main": "src/index.js",
   "types": "src/index.d.ts",
   "scripts": {
@@ -14,7 +14,13 @@
     "format",
     "formatting",
     "telephone",
-    "util"
+    "util",
+    "validation",
+    "international",
+    "country",
+    "database",
+    "analyze",
+    "typescript"
   ],
   "author": "Danilo Körber",
   "license": "MIT",

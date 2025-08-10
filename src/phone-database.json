@@ -1,4 +1,11 @@
 {
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2025-08-10",
+    "totalCountries": 249,
+    "description": "Comprehensive database of world countries with ISO codes and international dial codes",
+    "license": "MIT"
+  },
   "countries": [
     {
       "name": "Afghanistan",
@@ -1715,12 +1722,5 @@
       "dialCode": "+263",
       "flag": "🇿🇼"
     }
-  ],
-  "metadata": {
-    "version": "1.0.0",
-    "lastUpdated": "2025-08-10",
-    "totalCountries": 249,
-    "description": "Comprehensive database of world countries with ISO codes and international dial codes",
-    "license": "MIT"
-  }
+  ]
 }
