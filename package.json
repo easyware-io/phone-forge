@@ -1,6 +1,6 @@
 {
   "name": "phone-forge",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "A lightweight JavaScript library for formatting phone numbers",
   "main": "src/index.js",
   "types": "src/index.d.ts",
