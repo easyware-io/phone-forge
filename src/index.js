@@ -131,14 +131,7 @@ function formatInternationalPhoneNumber(digits, targetCountry, strict = false) {
     }
   }
 
-  // Fallback: try to detect country from number
-  const detectedCountries = phoneUtils.detectCountryFromPhoneNumber(digits);
-  if (detectedCountries.length > 0) {
-    const match = detectedCountries[0];
-    return `${match.dialCode} ${match.remainingDigits}`;
-  }
-
-  // If no country detected, assume it's a national number and needs a country code
+  // No country information provided - throw error
   throw new Error(
     "Cannot format as international without country information. Use countryCode option or enable autoDetect."
   );
@@ -201,12 +194,7 @@ function formatE164PhoneNumber(digits, targetCountry) {
     }
   }
 
-  // Try to detect country
-  const detectedCountries = phoneUtils.detectCountryFromPhoneNumber(digits);
-  if (detectedCountries.length > 0) {
-    return `+${digits}`;
-  }
-
+  // No country information provided - throw error
   throw new Error("Cannot format as E.164 without country information");
 }
 
@@ -252,6 +240,9 @@ function isValidPhoneNumber(phoneNumber, options = {}) {
 
   // Try to detect if it's a valid international number
   if (strict) {
+    // In strict mode, check minimum length and detectability
+    if (digits.length < 7) return false;
+
     const detectedCountries = phoneUtils.detectCountryFromPhoneNumber(digits);
     return detectedCountries.length > 0;
   }
