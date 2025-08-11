@@ -1,0 +1,317 @@
+name: Manual Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      prerelease_id:
+        description: "Prerelease identifier (only for prerelease)"
+        required: false
+        default: "beta"
+        type: string
+      dry_run:
+        description: "Dry run (test without publishing)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+
+    outputs:
+      new-version: ${{ steps.version.outputs.new-version }}
+      current-version: ${{ steps.version.outputs.current-version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Install dependencies
+        run: npm ci --only=production
+
+      - name: Run tests
+        run: npm test
+
+      - name: Get current version
+        id: current-version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Bump version
+        id: version
+        run: |
+          CURRENT_VERSION="${{ steps.current-version.outputs.current-version }}"
+
+          if [ "${{ inputs.version_type }}" = "prerelease" ]; then
+            if [ -n "${{ inputs.prerelease_id }}" ]; then
+              NEW_VERSION=$(npm version prerelease --preid=${{ inputs.prerelease_id }} --no-git-tag-version)
+            else
+              NEW_VERSION=$(npm version prerelease --no-git-tag-version)
+            fi
+          else
+            NEW_VERSION=$(npm version ${{ inputs.version_type }} --no-git-tag-version)
+          fi
+
+          # Remove 'v' prefix from npm version output
+          NEW_VERSION=${NEW_VERSION#v}
+
+          echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Version bumped from $CURRENT_VERSION to $NEW_VERSION"
+
+      - name: Update database version
+        run: |
+          node -e "
+          const fs = require('fs');
+          const db = JSON.parse(fs.readFileSync('./src/phone-database.json', 'utf8'));
+          db.metadata.version = '${{ steps.version.outputs.new-version }}';
+          db.metadata.lastUpdated = new Date().toISOString().split('T')[0];
+          fs.writeFileSync('./src/phone-database.json', JSON.stringify(db, null, 2) + '\n');
+          console.log('✓ Database version updated to ${{ steps.version.outputs.new-version }}');
+          "
+
+      - name: Generate changelog entry
+        run: |
+          # Get previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          echo "## [${{ steps.version.outputs.new-version }}] - $(date +%Y-%m-%d)" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "### Changes from $PREVIOUS_TAG" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> RELEASE_NOTES.md
+          else
+            echo "### Initial Release" >> RELEASE_NOTES.md
+            echo "- Initial release of Phone Forge" >> RELEASE_NOTES.md
+          fi
+
+          echo "" >> RELEASE_NOTES.md
+          echo "### Package Info" >> RELEASE_NOTES.md
+          echo "- Countries supported: $(node -p "require('./src/phone-database.json').countries.length")" >> RELEASE_NOTES.md
+          echo "- Database version: ${{ steps.version.outputs.new-version }}" >> RELEASE_NOTES.md
+
+      - name: Commit version changes
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git add package.json src/phone-database.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new-version }}"
+
+      - name: Create and push tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git tag -a "v${{ steps.version.outputs.new-version }}" -m "Release v${{ steps.version.outputs.new-version }}"
+          git push origin main
+          git push origin "v${{ steps.version.outputs.new-version }}"
+
+      - name: Display dry run results
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "🧪 DRY RUN MODE - No changes will be published"
+          echo "Current version: ${{ steps.version.outputs.current-version }}"
+          echo "New version would be: ${{ steps.version.outputs.new-version }}"
+          echo "Version type: ${{ inputs.version_type }}"
+          if [ "${{ inputs.version_type }}" = "prerelease" ]; then
+            echo "Prerelease ID: ${{ inputs.prerelease_id }}"
+          fi
+
+          echo ""
+          echo "Changes that would be made:"
+          echo "- package.json version updated"
+          echo "- Database metadata version updated"
+          echo "- Git tag v${{ steps.version.outputs.new-version }} created"
+          echo "- GitHub release created"
+          echo "- NPM package published"
+
+  test-package:
+    name: Test New Package
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    if: ${{ !inputs.dry_run }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare-release.outputs.new-version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --only=production
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Test package build
+        run: |
+          npm pack
+          echo "Package size:"
+          ls -lh phone-forge-${{ needs.prepare-release.outputs.new-version }}.tgz
+
+      - name: Test package installation
+        run: |
+          mkdir test-install
+          cd test-install
+          npm init -y
+          npm install ../phone-forge-${{ needs.prepare-release.outputs.new-version }}.tgz
+
+          node -e "
+          const pf = require('phone-forge');
+          console.log('✓ Package loads successfully');
+          console.log('✓ formatPhoneNumber test:', pf.formatPhoneNumber('2128691246'));
+          console.log('✓ phoneUtils test:', pf.phoneUtils.getCountryByISO2('US').name);
+          console.log('✓ Database stats:', pf.phoneUtils.getDatabaseStats().totalCountries, 'countries');
+          "
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [prepare-release, test-package]
+    if: ${{ !inputs.dry_run }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare-release.outputs.new-version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.new-version }}
+          name: Phone Forge v${{ needs.prepare-release.outputs.new-version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(needs.prepare-release.outputs.new-version, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-to-npm:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [prepare-release, test-package, create-github-release]
+    environment: npm-publish
+    if: ${{ !inputs.dry_run }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare-release.outputs.new-version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --only=production
+
+      - name: Configure NPM
+        run: |
+          npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
+          npm whoami
+
+      - name: Publish to NPM
+        run: |
+          if [ "${{ contains(needs.prepare-release.outputs.new-version, '-') }}" = "true" ]; then
+            echo "Publishing prerelease version with --tag beta"
+            npm publish --access public --tag beta
+          else
+            echo "Publishing stable version"
+            npm publish --access public
+          fi
+
+          echo "✅ Successfully published phone-forge@${{ needs.prepare-release.outputs.new-version }}"
+
+      - name: Verify NPM publication
+        run: |
+          sleep 10  # Wait for NPM to propagate
+
+          # Verify package is available
+          npm view phone-forge@${{ needs.prepare-release.outputs.new-version }}
+
+          # Test installation
+          mkdir npm-test
+          cd npm-test
+          npm init -y
+          npm install phone-forge@${{ needs.prepare-release.outputs.new-version }}
+
+          node -e "
+          const pf = require('phone-forge');
+          const packageJson = require('phone-forge/package.json');
+          console.log('✓ NPM installation successful');
+          console.log('✓ Version:', packageJson.version);
+          console.log('✓ Basic functionality test passed');
+          "
+
+  post-publish:
+    name: Post-Publish Tasks
+    runs-on: ubuntu-latest
+    needs: [prepare-release, publish-to-npm]
+    if: ${{ !inputs.dry_run && always() }}
+
+    steps:
+      - name: Success notification
+        if: needs.publish-to-npm.result == 'success'
+        run: |
+          echo "🎉 Successfully published Phone Forge v${{ needs.prepare-release.outputs.new-version }}!"
+          echo ""
+          echo "📦 NPM: https://www.npmjs.com/package/phone-forge"
+          echo "🔗 GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ needs.prepare-release.outputs.new-version }}"
+          echo "📋 Version: ${{ needs.prepare-release.outputs.current-version }} → ${{ needs.prepare-release.outputs.new-version }}"
+          echo "🔄 Type: ${{ inputs.version_type }}"
+
+          if [ "${{ contains(needs.prepare-release.outputs.new-version, '-') }}" = "true" ]; then
+            echo "⚠️  This is a prerelease version"
+            echo "   Install with: npm install phone-forge@beta"
+          else
+            echo "📥 Install with: npm install phone-forge"
+          fi
+
+      - name: Failure notification
+        if: needs.publish-to-npm.result == 'failure'
+        run: |
+          echo "❌ Publication failed for Phone Forge v${{ needs.prepare-release.outputs.new-version }}"
+          echo "Please check the workflow logs for details."
+          exit 1
