@@ -237,9 +237,11 @@ console.log("\n=== Testing Database Statistics ===");
 
 test("gets database statistics", () => {
   const stats = phoneUtils.getDatabaseStats();
+  const packageVersion = require("../package.json").version;
+
   assertTrue(stats.totalCountries > 200);
   assertTrue(stats.totalDialCodes > 0);
-  assertTrue(stats.version === "1.0.0");
+  assertEqual(stats.version, packageVersion); // Compare with package.json version
   assertTrue(stats.shortestDialCode.length >= 2); // At least "+1"
   assertTrue(stats.longestDialCode.length <= 6); // Max around "+1XXX"
 });
