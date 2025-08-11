@@ -441,6 +441,8 @@ phone-forge/
 │   └── index.d.ts           # TypeScript definitions
 ├── test/
 │   ├── index.test.js        # Basic tests
+├── CONTRIBUTING.md
+├── LICENSE.md
 ├── package.json
 └── README.md
 ```
