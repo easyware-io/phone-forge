@@ -31,7 +31,7 @@
   "bugs": {
     "url": "https://github.com/easyware-io/phone-forge/issues"
   },
-  "homepage": "https://github.com/easyware-io/phone-forge#readme",
+  "homepage": "https://easyware-io.github.io/phone-forge/",
   "files": [
     "src/",
     "README.md",
